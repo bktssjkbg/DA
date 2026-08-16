@@ -1,0 +1,54 @@
+[
+  {
+    "content": "Setup: clone repo → /app, restore DB backup, bootstrap (deps/env/build), verify services",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 1: Backend patch H-5 (imports fabric_roll_engine, rolls_created, GR response) + auto roll_no + backfill endpoints",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 1: Backend H-6 — Cutting wajib pilih roll via fabric_roll_engine (allocate/consume, satu pintu)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 1 POC: test_core_h5_h6.py — 61 LULUS / 0 GAGAL (dijalankan 3×, re-runnable)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 2: Frontend ReceivingModule — editor Rincian Roll + indikator selisih + daftar nomor roll terbit",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 2: Frontend WMSFabricRollsModule — nomor otomatis + tab 'Penerimaan tanpa roll' + terbitkan retroaktif",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 2: Frontend CuttingOrdersModule — roll picker WAJIB + preview alokasi FIFO + kolom gulungan dipakai",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 2: yarn build + restart frontend (static bundle) & cek log bersih",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 2: Verifikasi visual 5 user story via Playwright (semua terbukti di layar)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 3: End-to-End Testing via testing_agent_v3 — backend 52/52, POC 61/61, 0 bug",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 3: Gate baru INV-F22 (verify_fase_h5_h6_roll.py, 15 invarian HIJAU) + wiring gate.sh",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 3: Gate regresi lama hijau (data_integrity, concurrency, INV-F19/F21, HEALTH, NAV, CONTRACT, DEADCODE)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 3: Update plan.md (restore + sesi #15), ROADMAP.md, CHANGELOG.md, HANDOFF_NEXT_AGENT.md, test_result.md",
+    "status": "completed"
+  }
+]

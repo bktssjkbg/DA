@@ -1,0 +1,9 @@
+{
+  "backup_name": "auto_20260811_190000",
+  "timestamp": "20260811_190000",
+  "created_at": "2026-08-11T19:00:00+00:00",
+  "size": "1.7M",
+  "mongo_uri": "mongodb://localhost:27017",
+  "database": "test_database",
+  "status": "success"
+}
