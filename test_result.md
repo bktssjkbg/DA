@@ -7231,3 +7231,95 @@ Excel/PDF, kirim reminder.
       · Data uji yang sudah ada: material kain `POC-KAIN-CTN-30S` (kg) punya gulungan
         RL-202608-000x; `CUT-2026-0001` berstatus in_progress untuk uji progres wajib-roll.
       · JANGAN uji drag-and-drop / kamera / suara.
+
+#====================================================================================================
+# SESI 2026-08-16 (#16) — FASE H-7 (surat jalan satu daftar lintas sumber) & H-8 (4 alias menu mati)
+#====================================================================================================
+
+## user_problem_statement: |
+  Lanjutan H-5/H-6. Permintaan owner: (1) "Surat Jalan Gudang: Satukan surat jalan vendor, buyer,
+  dan gudang jadi satu daftar cetak yang rapi"; (2) "Menu Alias Mati: Arahkan empat pintu lama
+  Kirim CMT ke Portal Produksi supaya tidak ada layar kosong".
+
+## backend:
+  - task: "H-7 — agregasi surat jalan lintas sumber + rekap PDF"
+    implemented: true
+    working: true
+    file: "backend/routes/wms_delivery_notes.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: true
+        -agent: "main"
+        -comment: |
+          Endpoint BARU (read-only, tanpa nomor baru):
+          · GET /api/wms/delivery-notes/sources?source=&q=&date_from=&date_to=
+            → 14 baris = wh_delivery_notes (2) + vendor_shipments (4) + buyer dispatch (8).
+            Dispatch buyer DIPECAH per `dispatch_seq` (satu pengiriman fisik = satu baris).
+            Tiap baris memuat pdf_url dokumen RESMI sumbernya (+ pdf_alt_url kumulatif utk buyer).
+          · GET /api/wms/delivery-notes/sources/recap-pdf → rekap landscape memakai
+            `_pdf_data_table` (0 tumpang tindih, tabel 100% lebar konten). Mendukung `?token=`
+            untuk unduhan lewat window.open.
+          Perbaikan sekalian: `_pdf_data_table` leading 9,5 → 10,8 pt — sel yang teksnya melipat
+          dulu menghasilkan tumpang tindih bbox ±0,8 pt (INV-F17 tetap HIJAU setelah perubahan).
+
+## frontend:
+  - task: "H-7 — tab 'Semua Sumber' di layar Surat Jalan"
+    implemented: true
+    working: true
+    file: "frontend/src/components/erp/WMSDeliveryNotesModule.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: true
+        -agent: "main"
+        -comment: |
+          Bundel statis SUDAH di-rebuild. Tab pertama (default) "Semua Sumber" + badge 14,
+          chip filter sumber (Semua/Gudang/Vendor CMT/Buyer dengan jumlah), rentang tanggal,
+          pencarian, CSV, tombol "Cetak Rekap", dan per baris: PDF · PDF kumulatif (buyer) ·
+          "Buka sumber" (deep-link ke modul asal). Tab lama (SJ Gudang/Draft/Issued/Received)
+          + alur buat/issue/receive TETAP UTUH.
+  - task: "H-8 — empat alias mati diarahkan ke pintu yang bekerja"
+    implemented: true
+    working: true
+    file: "frontend/src/components/erp/moduleRegistry.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+        -working: true
+        -agent: "main"
+        -comment: |
+          `do-management` → `prod-shipments-vendor` (Kirim Material CMT, vendor_shipments).
+          `prod-cmt-packing` & `maklon-packing` → `da-cmt-receive` (Terima FG dari CMT,
+          cmt_receipts) — pekerjaan "packing CMT" sebenarnya adalah MENERIMA hasil jadi,
+          jadi mengarahkannya ke layar pengiriman material akan salah pekerjaan.
+          `cmt-progress` → `cmt-monitor` (Monitoring CMT). Semua sudah diverifikasi di layar.
+
+## metadata:
+  created_by: "main_agent"
+  version: "1.4"
+  test_sequence: 52
+  run_ui: true
+
+## test_plan
+  current_focus: "H-7/H-8 lewat LAYAR + API: (A) tab 'Semua Sumber' memuat 3 sumber & jumlahnya cocok; (B) chip filter + rentang tanggal + pencarian menyaring; (C) tombol PDF tiap sumber mengunduh PDF (termasuk PDF kumulatif buyer); (D) 'Cetak Rekap' mengunduh rekap landscape; (E) 'Buka sumber' membuka modul asal; (F) tab SJ Gudang + buat/issue/receive tidak rusak; (G) empat alias (#do-management, #prod-cmt-packing, #maklon-packing, #cmt-progress) TIDAK menampilkan layar kosong."
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+## agent_communication
+    -agent: "main"
+    -message: |
+      BUKTI YANG SUDAH ADA — jangan diulang: gate baru INV-F23
+      (`python3 scripts/verify_fase_h7_h8_surat_jalan.py`) = VERDICT HIJAU 8 invarian
+      (S1 kelengkapan 2+4+8=14 · S2 PDF tiap sumber 200 · S3 filter · S4 dispatch per pengiriman ·
+      S5 rekap 0 tumpang tindih 100% lebar · S6 read-only · S7/S8 alias tidak berujung kosong).
+      INV-F17, INV-F19, INV-F22, INV-NAV-01, INV-CONTRACT-01 tetap HIJAU.
+      CATATAN UJI LAYAR: frontend = STATIC BUNDLE dan SUDAH di-rebuild — JANGAN rebuild.
+      Navigasi: login → window.location.hash='<module-id>' → reload.
+      Modul: 'wms-delivery-notes' (Surat Jalan). Alias uji: 'do-management', 'prod-cmt-packing',
+      'maklon-packing', 'cmt-progress'. Login admin@garment.com / Admin@123 (login sekali, reuse).
+      JANGAN uji drag-and-drop / kamera / suara.

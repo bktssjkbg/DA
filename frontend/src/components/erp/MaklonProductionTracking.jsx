@@ -417,11 +417,11 @@ export default function MaklonProductionTracking({ token }) {
                 <button
                   key={o.id}
                   onClick={() => loadDetail(o)}
-                  data-testid={`maklon-order-${o.id}`}
                   className={`w-full text-left rounded-xl border p-3 transition-all ${
                     active ? 'bg-primary/10 border-primary/40 shadow-sm' : 'bg-foreground/[0.03] border-foreground/[0.08] hover:bg-foreground/5'
                   }`}
                   data-testid={`tracking-order-${o.order_code}`}
+                  data-order-id={o.id}
                 >
                   <div className="flex justify-between items-start mb-1.5">
                     <span className="font-mono text-[10px] text-foreground/50">{o.order_code}</span>

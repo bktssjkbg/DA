@@ -1,3 +1,36 @@
+# [2026-08-16 #16] **FASE H-7 & H-8** — satu daftar surat jalan lintas sumber · empat pintu lama tak lagi kosong
+
+## H-7 — surat jalan: satu daftar, tiga sumber (read-only)
+Terukur sebelum perbaikan: layar "Surat Jalan" HANYA membaca `wh_delivery_notes` (2 dokumen, keduanya
+DEMO), sementara surat jalan operasional hidup di `vendor_shipments` (4) dan `buyer_shipment_items`
+(8 pengiriman). Satu pertanyaan — "surat jalan apa saja yang keluar?" — butuh 3 layar di 2 portal.
+- `GET /api/wms/delivery-notes/sources?source=&q=&date_from=&date_to=` menormalkan ketiga koleksi
+  jadi satu daftar. **Dispatch buyer dipecah per `dispatch_seq`** karena itulah dokumen yang dibawa
+  kurir; menggabungnya per PO akan menyembunyikan pengiriman ke-2 dan ke-3.
+- Tiap baris mencetak **PDF resmi dokumen aslinya** (gudang `/{id}/pdf`, vendor
+  `type=vendor-shipment`, buyer `type=buyer-shipment-dispatch` + kumulatif `type=buyer-shipment`).
+  Tidak ada nomor baru, tidak ada generator PDF kedua. `wh_delivery_notes` TIDAK dipensiunkan —
+  dia satu-satunya tempat surat jalan internal/manual dibuat.
+- `GET /api/wms/delivery-notes/sources/recap-pdf` — rekap landscape (`_pdf_data_table`), 0 tumpang
+  tindih, tabel 100% lebar konten, mendukung `?token=` untuk unduhan lewat `window.open`.
+- **Cacat lama yang ikut ketemu:** `_pdf_data_table` memakai `leading` 9,5 pt untuk font 7,5 pt
+  (kotak glyph ±10,3 pt) ⇒ **setiap sel yang teksnya melipat tumpang tindih ±0,8 pt di SEMUA
+  dokumen**. Dinaikkan ke 10,8 pt; INV-F17 tetap HIJAU sesudahnya.
+- Layar: tab pertama **"Semua Sumber"** + chip filter sumber berisi angka, rentang tanggal, cari,
+  CSV, **Cetak Rekap**, dan per baris **PDF · PDF kumulatif · Buka sumber**. Tab lama & alur
+  buat/issue/receive surat jalan gudang tetap utuh.
+
+## H-8 — empat pintu lama diarahkan ke pekerjaan yang benar
+`do-management` → `prod-shipments-vendor`; `prod-cmt-packing` & `maklon-packing` → `da-cmt-receive`
+(packing CMT = MENERIMA hasil jadi + QC + posting FG, koleksi `cmt_receipts`); `cmt-progress` →
+`cmt-monitor`. Semuanya dulu menunjuk `wms-cmt-dispatches` yang koleksinya 0 dokumen.
+
+## Bukti
+Gate baru **INV-F23** `scripts/verify_fase_h7_h8_surat_jalan.py` → HIJAU 8 invarian (kelengkapan
+2+4+8=14 · PDF tiap sumber 200 · filter · dispatch per pengiriman · rekap rapi · agregasi read-only ·
+alias tak berujung kosong), terpasang di `gate.sh`. Agen uji: backend 6/6 grup, layar 7/7 grup, 0 bug.
+INV-F17 · INV-F19 · INV-F22 · INV-NAV-01 · INV-CONTRACT-01 tetap hijau.
+
 # [2026-08-16 #15] **FASE H-5 & H-6** — gulungan kain LAHIR saat diterima, MATI saat dipotong
 
 Melanjutkan pekerjaan yang berhenti di tengah. `python3 -m pyflakes backend/routes/warehouse.py`

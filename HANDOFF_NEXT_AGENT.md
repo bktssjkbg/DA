@@ -1,5 +1,32 @@
 ---
 
+# 🤝 HANDOFF (Session #16 — **H-7 + H-8 DITUTUP**: satu daftar surat jalan lintas sumber · empat pintu lama tak kosong) ✅
+
+Sesi #16 melanjutkan #15 (H-5/H-6). Rincian & bukti: `plan.md` entri **SESI #16**,
+`memory/CHANGELOG.md` entri **[#16]**, gate **INV-F23**.
+
+## ⚠️ PELAJARAN YANG JANGAN DIULANG
+1. **Route literal HARUS dideklarasikan sebelum route ber-parameter.** `GET /sources` diletakkan
+   sebelum `GET /{sj_id}`; kalau tertukar, FastAPI menangkapnya sebagai `sj_id="sources"` dan
+   endpoint baru akan 404 "Receipt/SJ not found" tanpa satu pun error di log.
+2. **Helper bersama bisa menyimpan cacat halus untuk SEMUA dokumen.** `_pdf_data_table` memakai
+   `leading` 9,5 pt untuk font 7,5 pt ⇒ tiap sel yang melipat tumpang tindih ±0,8 pt. Ditemukan
+   hanya karena rekap baru diukur dengan pymupdf, bukan dilihat mata. Sekarang 10,8 pt.
+3. **"Arahkan alias ke X" tidak selalu berarti X untuk semuanya.** `prod-cmt-packing` /
+   `maklon-packing` mengerjakan PENERIMAAN FG (`cmt_receipts`), jadi diarahkan ke `da-cmt-receive`,
+   bukan ke layar kirim material. Periksa koleksi yang dipakai modul sebelum mengarahkan pintu.
+4. **Agregasi wajib dibuktikan READ-ONLY.** Gate INV-F23 S6 menghitung dokumen sebelum & sesudah
+   memanggil daftar/rekap — lapisan "hanya menampilkan" mudah sekali berubah jadi penulis.
+
+## SISA PEKERJAAN
+- **H-6b** (satu-satunya sisa Fase H): Cutting menerbitkan dokumen **Material Issue**
+  (`ref_type='cutting_issue'`) supaya seluruh arus keluar gudang tampil di satu daftar
+  "Pengeluaran Material".
+- Alat: `scripts/verify_fase_h7_h8_surat_jalan.py` (INV-F23), `scripts/verify_fase_h5_h6_roll.py`
+  (INV-F22), `scripts/cleanup_uji_h5_h6.py` (sapu data uji, `--prefix` + `--apply`).
+
+---
+
 # 🤝 HANDOFF (Session #15 — **H-5 + H-6 DITUTUP**: gulungan kain lahir saat diterima, wajib ditunjuk saat dipotong) ✅
 
 Titik berhenti sesi lalu = agent sedang MENAMBAH blok penerbitan roll di `routes/warehouse.py`

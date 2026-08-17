@@ -13,12 +13,17 @@
   *(Catatan lingkup: dokumen **Material Issue** untuk arus keluar kain di Cutting — usul lama
   `ref_type='cutting_issue'` — BELUM dikerjakan; stok & gulungan sudah benar, yang belum ada
   hanyalah dokumen MI supaya arus keluar kain ikut muncul di satu daftar "Pengeluaran Material".)*
-- **H-7 (P2)** Surat Jalan Gudang masih terpisah per sumber — satukan jadi satu daftar cetak.
-- **H-8 (P2)** Alias lama `cmt-progress` · `do-management` · `prod-cmt-packing` · `maklon-packing`
-  masih mengarah ke modul `wms-cmt-dispatches` yang koleksinya kosong; arahkan ke
-  `prod-shipments-vendor`.
-- **H-6b (P2, sisa dari H-6)** Cutting menerbitkan dokumen **Material Issue** (`cutting_issue`)
-  supaya seluruh arus keluar gudang tampil di satu daftar.
+- **H-7 (SELESAI 2026-08-16 #16)** ✅ Surat jalan **satu daftar lintas sumber** (read-only):
+  `GET /api/wms/delivery-notes/sources` menyatukan `wh_delivery_notes` + `vendor_shipments` +
+  dispatch buyer (dipecah per `dispatch_seq`), tiap baris mencetak PDF RESMI sumbernya, plus
+  `sources/recap-pdf` (rekap landscape, 100% lebar halaman). Layar: tab "Semua Sumber" dengan chip
+  filter sumber, rentang tanggal, CSV, Cetak Rekap, dan "Buka sumber". Gate: **INV-F23**.
+- **H-8 (SELESAI 2026-08-16 #16)** ✅ Empat alias mati diarahkan ke pintu yang bekerja:
+  `do-management` → `prod-shipments-vendor`; `prod-cmt-packing` & `maklon-packing` →
+  `da-cmt-receive` (packing CMT = menerima FG + QC, koleksi `cmt_receipts`); `cmt-progress` →
+  `cmt-monitor`. Gate: **INV-F23** (S7/S8 menolak alias yang menunjuk modul berkoleksi kosong).
+- **H-6b (P2, satu-satunya sisa Fase H)** Cutting menerbitkan dokumen **Material Issue**
+  (`cutting_issue`) supaya seluruh arus keluar gudang tampil di satu daftar.
 - **F3/F4 (P1)** Rapikan 5 PDF tersering (SPP · Invoice · Slip Gaji · Picklist · SJ Vendor) ke pola
   `_pdf_data_table` (auto-wrap + penuh lebar halaman) seperti Surat Jalan Buyer di Fase F1/F2.
 - **G (P1)** Penomoran dokumen **Auto/Manual per jenis dokumen** yang bisa diatur System Admin

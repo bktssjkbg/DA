@@ -29,7 +29,17 @@ import ExportCsvButton from '@/components/ui/export-csv-button';
    per satu SJ). Rekap yang tidak bisa diunduh berakhir diketik ulang. */
 const CSV_HEAD = ['No. SJ', 'Jenis', 'Status', 'Penerima', 'Alamat', 'No. HP',
   'Pengirim', 'No. Kendaraan', 'Jumlah item', 'Dibuat'];
+// FASE H-7 — kolom untuk daftar LINTAS SUMBER (gudang + vendor CMT + buyer)
+const CSV_HEAD_ALL = ['No. Surat Jalan', 'Sumber', 'Jenis', 'Tanggal', 'Tujuan',
+  'Acuan (PO/Ref)', 'Status', 'Jumlah baris', 'Total qty'];
 const SJ_VIEW_KEY = 'wms_delivery_notes_view';
+
+const SOURCE_BADGE = {
+  gudang: { label: 'Gudang', cls: 'bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-500/30' },
+  vendor: { label: 'Vendor CMT', cls: 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-500/30' },
+  buyer: { label: 'Buyer', cls: 'bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-500/30' },
+};
+const fmtQty = (n) => Number(n || 0).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 const API = process.env.REACT_APP_BACKEND_URL;
 
@@ -52,7 +62,17 @@ export default function WMSDeliveryNotesModule({ token, onNavigate }) {
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }), [token]);
   const [notes, setNotes] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState('all');
+  const [tab, setTab] = useState('sources');
+  // ── FASE H-7: daftar surat jalan LINTAS SUMBER ────────────────────────────
+  // Sebelum ini layar ini hanya membaca `wh_delivery_notes` (2 dokumen demo),
+  // sementara surat jalan operasional hidup di `vendor_shipments` (kirim material
+  // ke CMT) dan `buyer_shipments` (dispatch ke buyer). Orang gudang harus membuka
+  // tiga layar di dua portal untuk menjawab "surat jalan apa saja yang keluar?".
+  const [allRows, setAllRows] = useState([]);
+  const [allMeta, setAllMeta] = useState({ total: 0, by_source: {}, total_qty: 0 });
+  const [allLoading, setAllLoading] = useState(false);
+  const [srcFilter, setSrcFilter] = useState('all');
+  const [range, setRange] = useState({ from: '', to: '' });
   const [search, setSearch] = useState('');
   const [view, setView] = useState(() => {
     try { return localStorage.getItem(SJ_VIEW_KEY) || 'table'; } catch { return 'table'; }
@@ -90,7 +110,7 @@ export default function WMSDeliveryNotesModule({ token, onNavigate }) {
     try {
       const params = new URLSearchParams();
       if (search) params.set('search', search);
-      if (tab !== 'all') params.set('status', tab);
+      if (!['all', 'sources'].includes(tab)) params.set('status', tab);
       const r = await fetch(`${API}/api/wms/delivery-notes?${params}`, { headers });
       const d = await r.json();
       setNotes(d.items || []);
@@ -102,6 +122,58 @@ export default function WMSDeliveryNotesModule({ token, onNavigate }) {
   }, [headers, search, tab]);
 
   useEffect(() => { load(); }, [load]);
+
+  // FASE H-7: satu daftar lintas sumber (read-only) — dipakai tab "Semua Sumber".
+  const loadAllSources = useCallback(async () => {
+    setAllLoading(true);
+    try {
+      const p = new URLSearchParams();
+      if (srcFilter && srcFilter !== 'all') p.set('source', srcFilter);
+      if (search) p.set('q', search);
+      if (range.from) p.set('date_from', range.from);
+      if (range.to) p.set('date_to', range.to);
+      const r = await fetch(`${API}/api/wms/delivery-notes/sources?${p}`, { headers });
+      const d = await r.json();
+      setAllRows(d.items || []);
+      setAllMeta({ total: d.total || 0, by_source: d.by_source || {}, total_qty: d.total_qty || 0 });
+    } catch {
+      toast.error('Gagal memuat daftar surat jalan lintas sumber');
+    } finally {
+      setAllLoading(false);
+    }
+  }, [headers, srcFilter, search, range.from, range.to]);
+
+  useEffect(() => { if (tab === 'sources') loadAllSources(); }, [tab, loadAllSources]);
+
+  // Unduh PDF dokumen asli (bukan generator kedua) — nomor & isi tetap milik sumbernya.
+  const downloadFromUrl = async (url, filename) => {
+    try {
+      const r = await fetch(`${API}${url}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) {
+        const t = await r.text().catch(() => '');
+        throw new Error(t.slice(0, 160) || `HTTP ${r.status}`);
+      }
+      const blob = await r.blob();
+      const a = document.createElement('a');
+      a.href = window.URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      window.URL.revokeObjectURL(a.href);
+      toast.success(`PDF ${filename} diunduh`);
+    } catch (e) {
+      toast.error(`Gagal mengunduh PDF: ${e.message}`, { duration: 8000 });
+    }
+  };
+
+  const downloadRecap = () => {
+    const p = new URLSearchParams();
+    if (srcFilter && srcFilter !== 'all') p.set('source', srcFilter);
+    if (search) p.set('q', search);
+    if (range.from) p.set('date_from', range.from);
+    if (range.to) p.set('date_to', range.to);
+    downloadFromUrl(`/api/wms/delivery-notes/sources/recap-pdf?${p}`,
+      `rekap-surat-jalan-${range.from || 'semua'}.pdf`);
+  };
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -313,7 +385,15 @@ export default function WMSDeliveryNotesModule({ token, onNavigate }) {
         {/* Tabs */}
         <Tabs value={tab} onValueChange={setTab} className="px-6">
           <TabsList className="bg-foreground/5 border-b border-foreground/10 w-full justify-start rounded-none">
-            <TabsTrigger value="all" data-testid="tab-all">Semua</TabsTrigger>
+            {/* FASE H-7 — pintu utama: SATU daftar lintas sumber */}
+            <TabsTrigger value="sources" data-testid="tab-all-sources">
+              Semua Sumber
+              {allMeta.total > 0 && (
+                <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-semibold"
+                  data-testid="all-sources-count">{allMeta.total}</span>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="all" data-testid="tab-all">SJ Gudang</TabsTrigger>
             <TabsTrigger value="draft" data-testid="tab-draft">Draft</TabsTrigger>
             <TabsTrigger value="issued" data-testid="tab-issued">Issued</TabsTrigger>
             <TabsTrigger value="received" data-testid="tab-received">Received</TabsTrigger>
@@ -323,6 +403,141 @@ export default function WMSDeliveryNotesModule({ token, onNavigate }) {
 
       {/* Delivery Notes List */}
       <div className="flex-1 overflow-auto p-6">
+        {tab === 'sources' ? (
+          /* ── FASE H-7: SATU DAFTAR SURAT JALAN LINTAS SUMBER ───────────────
+             Read-only: tiap baris mencetak PDF RESMI dari dokumen aslinya dan bisa
+             dibuka di modul sumbernya. Tidak ada nomor baru & tidak ada generator
+             PDF kedua — surat jalan tetap milik sumbernya masing-masing. */
+          <div className="space-y-4" data-testid="sj-all-sources-panel">
+            <div className="rounded-xl border border-foreground/10 bg-foreground/5 p-3 flex flex-wrap items-end gap-3">
+              <div>
+                <Label className="text-[11px] text-muted-foreground">Sumber</Label>
+                <div className="flex gap-1 mt-1">
+                  {[['all', `Semua (${allMeta.total})`],
+                    ['gudang', `Gudang (${allMeta.by_source?.gudang ?? 0})`],
+                    ['vendor', `Vendor CMT (${allMeta.by_source?.vendor ?? 0})`],
+                    ['buyer', `Buyer (${allMeta.by_source?.buyer ?? 0})`]].map(([k, lbl]) => (
+                    <button key={k} type="button" onClick={() => setSrcFilter(k)}
+                      className={`h-8 px-2.5 rounded-lg text-xs border ${srcFilter === k
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-foreground/5 text-foreground border-foreground/10 hover:bg-foreground/10'}`}
+                      data-testid={`sj-src-${k}`}>
+                      {lbl}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <Label className="text-[11px] text-muted-foreground">Dari tanggal</Label>
+                <Input type="date" value={range.from}
+                  onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))}
+                  className="h-8 w-40 bg-foreground/5 border-foreground/10" data-testid="sj-date-from" />
+              </div>
+              <div>
+                <Label className="text-[11px] text-muted-foreground">Sampai tanggal</Label>
+                <Input type="date" value={range.to}
+                  onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))}
+                  className="h-8 w-40 bg-foreground/5 border-foreground/10" data-testid="sj-date-to" />
+              </div>
+              <div className="flex items-center gap-2 ml-auto">
+                <Button variant="outline" onClick={loadAllSources} disabled={allLoading}
+                  className="h-8 border-foreground/10" data-testid="sj-all-refresh">
+                  <RefreshCw className={`w-4 h-4 ${allLoading ? 'animate-spin' : ''}`} />
+                </Button>
+                <ExportCsvButton filename="surat-jalan-semua-sumber" testId="sj-all-export-csv"
+                  head={CSV_HEAD_ALL}
+                  rows={allRows.map((r) => [r.number, r.source_label, r.doc_type,
+                    (r.date || '').slice(0, 10), r.recipient, r.reference || '', r.status,
+                    r.lines, r.qty])}
+                  className="h-8 border-foreground/10"
+                  note={`${allRows.length} surat jalan`} />
+                <Button onClick={downloadRecap} className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white"
+                  data-testid="sj-recap-pdf">
+                  <Download className="w-4 h-4 mr-1.5" /> Cetak Rekap
+                </Button>
+              </div>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              Satu daftar untuk tiga sumber: <b className="text-foreground">Gudang</b> (surat jalan internal/manual),{' '}
+              <b className="text-foreground">Vendor CMT</b> (kirim material), dan{' '}
+              <b className="text-foreground">Buyer</b> (tiap pengiriman bertahap = satu baris).
+              Total {fmtQty(allMeta.total_qty)} qty pada {allMeta.total} dokumen. Tombol PDF mengunduh
+              dokumen RESMI dari sumbernya — nomornya tidak dibuat ulang di sini.
+            </p>
+
+            {allLoading ? (
+              <div className="space-y-2" data-testid="sj-all-loading">
+                {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+              </div>
+            ) : allRows.length === 0 ? (
+              <EmptyState icon={FileText} title="Tidak ada surat jalan pada filter ini"
+                description="Ubah filter sumber / rentang tanggal, atau buat surat jalan gudang baru." />
+            ) : (
+              <div className="rounded-xl border border-foreground/10 bg-foreground/5 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs" data-testid="sj-all-sources-table">
+                    <thead className="bg-foreground/10">
+                      <tr className="text-left">
+                        {['No. Surat Jalan', 'Sumber', 'Jenis', 'Tanggal', 'Tujuan', 'Acuan',
+                          'Status', 'Baris', 'Total qty', 'Tindakan'].map((h) => (
+                          <th key={h} className="px-2.5 py-2 font-semibold whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allRows.map((r) => {
+                        const b = SOURCE_BADGE[r.source] || SOURCE_BADGE.gudang;
+                        return (
+                          <tr key={r.key} className="border-t border-foreground/10 hover:bg-foreground/5"
+                            data-testid={`sj-all-row-${r.number}`}>
+                            <td className="px-2.5 py-2 font-mono whitespace-nowrap">{r.number}</td>
+                            <td className="px-2.5 py-2">
+                              <span className={`px-1.5 py-0.5 rounded-full border text-[10px] font-semibold ${b.cls}`}>
+                                {b.label}
+                              </span>
+                            </td>
+                            <td className="px-2.5 py-2 whitespace-nowrap">{r.doc_type}</td>
+                            <td className="px-2.5 py-2 whitespace-nowrap">{(r.date || '').slice(0, 10) || '-'}</td>
+                            <td className="px-2.5 py-2">{r.recipient || '-'}</td>
+                            <td className="px-2.5 py-2 font-mono">{r.reference || '-'}</td>
+                            <td className="px-2.5 py-2 whitespace-nowrap">{r.status || '-'}</td>
+                            <td className="px-2.5 py-2 text-right tabular-nums">{r.lines}</td>
+                            <td className="px-2.5 py-2 text-right tabular-nums">{fmtQty(r.qty)}</td>
+                            <td className="px-2.5 py-2 whitespace-nowrap">
+                              <button type="button"
+                                onClick={() => downloadFromUrl(r.pdf_url, `${(r.number || 'surat-jalan').replace(/[/#]/g, '-')}.pdf`)}
+                                className="text-emerald-700 dark:text-emerald-400 hover:underline mr-2 inline-flex items-center gap-1"
+                                data-testid={`sj-all-pdf-${r.number}`}>
+                                <Download className="w-3 h-3" /> PDF
+                              </button>
+                              {r.pdf_alt_url && (
+                                <button type="button"
+                                  onClick={() => downloadFromUrl(r.pdf_alt_url, `${(r.number || 'sj').replace(/[/#]/g, '-')}-kumulatif.pdf`)}
+                                  className="text-blue-700 dark:text-blue-400 hover:underline mr-2"
+                                  data-testid={`sj-all-pdf-alt-${r.number}`}>
+                                  {r.pdf_alt_label || 'PDF kumulatif'}
+                                </button>
+                              )}
+                              {onNavigate && (
+                                <button type="button" onClick={() => onNavigate(r.module)}
+                                  className="text-muted-foreground hover:underline inline-flex items-center gap-0.5"
+                                  data-testid={`sj-all-open-${r.number}`}>
+                                  Buka sumber <ChevronRight className="w-3 h-3" />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
         <OnwardCTA
           onNavigate={onNavigate}
           title="Setelah Surat Jalan Terbit"
@@ -532,6 +747,8 @@ export default function WMSDeliveryNotesModule({ token, onNavigate }) {
           )
         )}
         <PaginationLite page={page} totalPages={totalPages} total={total} onPageChange={setPage} />
+          </>
+        )}
       </div>
 
       {/* Create Dialog */}

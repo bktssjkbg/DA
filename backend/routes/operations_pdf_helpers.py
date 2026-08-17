@@ -125,10 +125,19 @@ def _pdf_data_table(headers, rows, *, weights=None, right_cols=None, total_row=F
     tot = float(sum(weights)) or 1.0
     col_w = [avail * (w / tot) for w in weights]
 
-    cellL = ParagraphStyle('cL', fontSize=7.5, leading=9.5, wordWrap='LTR')
-    cellR = ParagraphStyle('cR', fontSize=7.5, leading=9.5, alignment=TA_RIGHT, wordWrap='LTR')
-    hL = ParagraphStyle('hL', fontSize=7.5, leading=9.5, fontName='Helvetica-Bold', textColor=colors.white)
-    hR = ParagraphStyle('hR', fontSize=7.5, leading=9.5, fontName='Helvetica-Bold', textColor=colors.white, alignment=TA_RIGHT)
+    # FASE H-7 (2026-08-16): `leading` dinaikkan 9,5 → 10,8 pt.
+    # Sebab yang terukur: pada sel yang teksnya MELIPAT ke baris kedua, kotak glyph
+    # ReportLab setinggi ±10,3 pt sedangkan jarak antarbaris hanya 9,5 pt ⇒ dua baris
+    # dalam SATU sel saling tumpang tindih ±0,8 pt. Tidak terlihat mata, tetapi itu
+    # tetap tumpang tindih sungguhan (terdeteksi penjaga INV-F17 yang mengukur bbox
+    # PDF jadi) dan pada font/ukuran lain bisa benar-benar bertabrakan.
+    # 10,8 = 1,44 × ukuran font — cukup untuk semua sel yang melipat, tanpa membuat
+    # tabel jadi tinggi berlebihan.
+    _LEAD = 10.8
+    cellL = ParagraphStyle('cL', fontSize=7.5, leading=_LEAD, wordWrap='LTR')
+    cellR = ParagraphStyle('cR', fontSize=7.5, leading=_LEAD, alignment=TA_RIGHT, wordWrap='LTR')
+    hL = ParagraphStyle('hL', fontSize=7.5, leading=_LEAD, fontName='Helvetica-Bold', textColor=colors.white)
+    hR = ParagraphStyle('hR', fontSize=7.5, leading=_LEAD, fontName='Helvetica-Bold', textColor=colors.white, alignment=TA_RIGHT)
 
     def esc(v):
         return str(v if v is not None else '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')

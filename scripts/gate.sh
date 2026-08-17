@@ -469,6 +469,19 @@ if [ $AUTH_READY -eq 1 ]; then
   run_gate "STOK/PRODUK — Gulungan kain: lahir dari penerimaan, wajib ditunjuk saat dipotong (INV-F22)" \
            "python3 scripts/verify_fase_h5_h6_roll.py"
 
+  # ── INV-F23 (2026-08-16, Fase H-7/H-8) — SURAT JALAN & PINTU MENU ───────────
+  # Terukur sebelum perbaikan: layar "Surat Jalan" HANYA membaca `wh_delivery_notes`
+  # (2 dokumen DEMO), sementara surat jalan operasional hidup di `vendor_shipments` (4)
+  # dan `buyer_shipment_items` (8 pengiriman) ⇒ satu pertanyaan ("surat jalan apa saja
+  # yang keluar?") butuh tiga layar di dua portal. Dan empat alias lama
+  # (`cmt-progress`, `do-management`, `prod-cmt-packing`, `maklon-packing`) diarahkan ke
+  # `wms-cmt-dispatches` yang koleksinya 0 dokumen — empat pintu ke layar kosong.
+  # Gate ini menahan: dokumen hilang dari daftar gabungan, pengiriman buyer ke-2/ke-3
+  # tersembunyi, baris yang tak bisa dicetak, rekap PDF tumpang tindih/kekecilan,
+  # agregasi yang ternyata MENULIS, dan alias yang kembali menunjuk modul kosong.
+  run_gate "DOKUMEN/NAVIGASI — Surat jalan satu daftar lintas sumber + pintu lama tak kosong (INV-F23)" \
+           "python3 scripts/verify_fase_h7_h8_surat_jalan.py"
+
 else
   for g in "state machine jurnal" "nomor dokumen kembar" "batas nilai AR/AP" \
            "RBAC/IDOR" "input jahat 4xx" "endpoint kritis" \
@@ -492,7 +505,8 @@ else
            "Gudang: buat MI + Buat Barcode + menu mati (INV-F19)" \
            "Dashboard Marketing: pintu + angka resmi (INV-F20)" \
            "Nomor dokumen: mode auto/manual (INV-F21)" \
-           "Gulungan kain lahir & wajib ditunjuk (INV-F22)"; do
+           "Gulungan kain lahir & wajib ditunjuk (INV-F22)" \
+           "Surat jalan satu daftar + pintu lama (INV-F23)"; do
     skip_gate "$g" "backend/auth belum siap"
   done
 fi

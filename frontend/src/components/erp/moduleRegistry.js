@@ -131,7 +131,8 @@ const DocNumberingModule = lazy(() => import('./DocNumberingModule'));
 const WHReturnsModule  = lazy(() => import('./WHReturnsModule'));
 const QuarantineModule = lazy(() => import('./QuarantineModule'));  // FASE 6: Karantina QC (INV-8)
 const StockSchemaHealthModule = lazy(() => import('./StockSchemaHealthModule'));  // FASE 6.6-A: kesehatan skema baris stok
-// O1.2 — CMTPackingModule tidak lagi dipakai (prod-cmt-packing → redirect wms-cmt-dispatches).
+// O1.2 — CMTPackingModule tidak lagi dipakai. FASE H-8: prod-cmt-packing → `da-cmt-receive`
+// (Terima FG dari CMT, koleksi `cmt_receipts`) — bukan lagi ke wms-cmt-dispatches yang kosong.
 // FASE 20 — SUDAH DIARSIP ke `_archive/`.
 // const CMTPackingModule = lazy(() => import('./CMTPackingModule'));
 // Task 2.5: Production Material Returns
@@ -440,7 +441,8 @@ const TokoChannelManagerModule = lazy(() => import('./TokoChannelManagerModule')
 // Phase 5B: Orders, Pricing/Flashsale, KOL, CS/Returns
 const TokoOrdersModule = lazy(() => import('./TokoOrdersModule'));
 const FulfillmentModule = lazy(() => import('./FulfillmentModule'));  // Phase 6: Online Order Bridge
-// O1.1 — DOManagementModule tidak lagi dipakai (do-management → redirect wms-cmt-dispatches). Diarsip kelak.
+// O1.1 — DOManagementModule tidak lagi dipakai. FASE H-8: do-management → `prod-shipments-vendor`
+// (Kirim Material CMT, koleksi `vendor_shipments`) — bukan lagi ke wms-cmt-dispatches yang kosong.
 // const DOManagementModule = lazy(() => import('./DOManagementModule'));  // Phase 2 Enhancement: DO System
 const UnifiedInventoryModule = lazy(() => import('./UnifiedInventoryModule'));  // Phase 2 Enhancement: Unified Inventory
 const Phase7ReportingModule = lazy(() => import('./Phase7ReportingModule'));  // Phase 7: Laporan & Dashboard
@@ -1008,7 +1010,11 @@ export const MODULE_REGISTRY = {
   'maklon-po':          makeRedirect('maklon-pos-engine'),
   'maklon-po-360':      MaklonPO360Module,     // Unified 360° view per PO (baca mirror dewi_maklon_pos — tetap valid)
   // O1.2 — CMT de-dup: koleksi dewi_cmt_* KOSONG; SSOT = WMS + Vendor Portal. Redirect deep-link lama.
-  'cmt-progress':       makeRedirect('wms-cmt-dispatches'),  // was CMTProgressModule
+  // FASE H-8 (2026-08-16, keputusan owner "jangan ada layar kosong"): alias ini dulu
+  // mengarah ke `wms-cmt-dispatches` yang koleksinya (`wh_cmt_dispatches`) 0 dokumen.
+  // Sekarang diarahkan ke pintu yang BENAR-BENAR mengerjakan pekerjaan itu: progres CMT
+  // dipantau di Monitoring CMT (`cmt-monitor`), bukan di layar pengiriman.
+  'cmt-progress':       makeRedirect('cmt-monitor'),          // was CMTProgressModule → wms-cmt-dispatches (kosong)
   'cmt-lifecycle':      makeRedirect('vendor-admin'),        // was CMTLifecycleModule
   
   // Session #11.21 — Vendor CMT Portal (2026-05-27)
@@ -1124,7 +1130,10 @@ export const MODULE_REGISTRY = {
   // Phase 6: Fulfillment (Online Order Bridge: Marketing → Inventory)
   'fulfillment':    FulfillmentModule,
   // Phase 2 Enhancement: DO Management + Unified Inventory Viewer
-  'do-management':      makeRedirect('wms-cmt-dispatches'),  // O1.1 — SSOT DO CMT = WMS CMT Dispatches (dewi_cmt_delivery_orders kosong)
+  // FASE H-8 (2026-08-16): dulu → `wms-cmt-dispatches` (koleksi `wh_cmt_dispatches` = 0
+  // dokumen ⇒ layar kosong). Surat jalan/pengiriman material ke CMT yang NYATA hidup di
+  // `vendor_shipments` lewat pintu "Kirim Material CMT".
+  'do-management':      makeRedirect('prod-shipments-vendor'),
   'unified-inventory':  makeRedirect('wms-stock-hub', 'viewer'),  // RC-IA-warehouse-1: viewer tab di stock hub
 
   // Phase 7 — Laporan & Dashboard
@@ -1142,7 +1151,10 @@ export const MODULE_REGISTRY = {
   // ─── Fase 2: Cutting & CMT ────────────────────────────────────────────────
   'prod-cutting': makeRedirect('prod-progress'),  // FASE 5: cutting engine lama diarsip
   'prod-cmt':         makeRedirect('vendor-admin'),        // O1.2 — was CMTManagementModule (dewi_cmt_* kosong)
-  'prod-cmt-packing': makeRedirect('wms-cmt-dispatches'),  // O1.2 — was CMTPackingModule
+  // FASE H-8 (2026-08-16): "packing CMT" = MENERIMA hasil jadi dari CMT (QC + posting FG,
+  // koleksi `cmt_receipts`). Dulu dialihkan ke `wms-cmt-dispatches` yang koleksi
+  // dispatch-nya 0 dokumen. Pintu yang benar-benar mengerjakannya: "Terima FG dari CMT".
+  'prod-cmt-packing': makeRedirect('da-cmt-receive'),
   'prod-material-returns': EngineReturnModule,  // FASE 5: returns engine baru
 
   // ─── Phase 6 — HRIS (Full) ────────────────────────────────────────────────
@@ -1237,7 +1249,7 @@ export const MODULE_REGISTRY = {
   'maklon-orders':           makeRedirect('maklon-pos-engine'),
   // maklon-cmt and maklon-packing belong in Production portal (CMT is outsourcing, part of production)
   'maklon-cmt':              makeRedirect('vendor-admin'),        // O1.2 — hindari chain (was → prod-cmt)
-  'maklon-packing':          makeRedirect('wms-cmt-dispatches'),  // O1.2 — hindari chain (was → prod-cmt-packing)
+  'maklon-packing':          makeRedirect('da-cmt-receive'),      // FASE H-8 — was wms-cmt-dispatches (koleksi kosong)
   // Task 1.1: mgmt-products → prod-models-bom
   'mgmt-products':           makeRedirect('prod-models-bom', 'models'),
   // FASE 5: reservasi per-WO dihapus — arahkan ke Material Issue gudang

@@ -1,3 +1,65 @@
+# SESI 2026-08-16 (#16) — **FASE H-7 & H-8 DITUTUP**: satu daftar surat jalan lintas sumber · empat pintu lama tak lagi kosong
+
+> **Permintaan pemilik:** (1) *"Surat Jalan Gudang: satukan surat jalan vendor, buyer, dan gudang
+> jadi satu daftar cetak yang rapi"*; (2) *"Menu Alias Mati: arahkan empat pintu lama Kirim CMT ke
+> Portal Produksi supaya tidak ada layar kosong"*.
+
+## 1) ANGKA SEBELUM PERBAIKAN
+
+| Yang diukur | Sebelum |
+|---|---|
+| layar "Surat Jalan" (Portal Gudang) | HANYA membaca `wh_delivery_notes` = **2 dokumen, keduanya DEMO** |
+| surat jalan yang benar-benar dipakai | `vendor_shipments` **4** (kirim material CMT) + `buyer_shipment_items` **8 pengiriman** (dispatch buyer) |
+| akibatnya | satu pertanyaan ("surat jalan apa saja yang keluar?") butuh **3 layar di 2 portal**, dan layar yang namanya paling mirip pertanyaan itu isinya paling sedikit |
+| 4 alias menu | `cmt-progress`, `do-management`, `prod-cmt-packing`, `maklon-packing` → `wms-cmt-dispatches` (koleksi `wh_cmt_dispatches` = **0 dokumen**) |
+
+## 2) H-7 — SATU DAFTAR, TIGA SUMBER (READ-ONLY)
+
+- `GET /api/wms/delivery-notes/sources?source=&q=&date_from=&date_to=` menormalkan tiga koleksi jadi
+  satu daftar (14 baris: 2 gudang + 4 vendor + 8 buyer). **Dispatch buyer dipecah per `dispatch_seq`**
+  karena itulah dokumen yang benar-benar dibawa kurir — menggabungnya per PO akan menyembunyikan
+  pengiriman ke-2 dan ke-3.
+- Tiap baris mencetak **PDF RESMI dokumen aslinya** (`/{id}/pdf` untuk gudang,
+  `type=vendor-shipment` untuk vendor, `type=buyer-shipment-dispatch` untuk buyer + `type=buyer-shipment`
+  sebagai PDF kumulatif). **Tidak ada nomor baru dan tidak ada generator PDF kedua** — surat jalan tetap
+  milik sumbernya. `wh_delivery_notes` TIDAK dipensiunkan (satu-satunya tempat SJ internal/manual dibuat).
+- `GET /api/wms/delivery-notes/sources/recap-pdf` mencetak **rekap** (landscape) memakai
+  `_pdf_data_table`: 0 tumpang tindih, tabel **100% lebar konten**, mendukung `?token=` untuk unduhan.
+- **Cacat lama yang ikut ketemu & diperbaiki:** `_pdf_data_table` memakai `leading` 9,5 pt untuk font
+  7,5 pt, padahal kotak glyph ±10,3 pt ⇒ **setiap sel yang teksnya melipat menghasilkan tumpang tindih
+  ±0,8 pt** di SEMUA dokumen. Dinaikkan ke 10,8 pt; gate INV-F17 tetap HIJAU sesudahnya.
+- Layar: tab pertama **"Semua Sumber"** (badge jumlah) + chip filter sumber berisi angka, rentang
+  tanggal, pencarian, CSV, tombol **Cetak Rekap**, dan per baris **PDF · PDF kumulatif · Buka sumber**.
+  Tab lama (SJ Gudang/Draft/Issued/Received) + alur buat/issue/receive tetap utuh.
+
+## 3) H-8 — EMPAT PINTU LAMA DIARAHKAN KE PEKERJAAN YANG BENAR
+
+| Alias | Dulu | Sekarang | Alasan |
+|---|---|---|---|
+| `do-management` | `wms-cmt-dispatches` (0 dok) | `prod-shipments-vendor` | surat jalan/kirim material CMT nyata di `vendor_shipments` |
+| `prod-cmt-packing` | `wms-cmt-dispatches` | `da-cmt-receive` | "packing CMT" = **menerima** hasil jadi + QC + posting FG (`cmt_receipts`) |
+| `maklon-packing` | `wms-cmt-dispatches` | `da-cmt-receive` | idem |
+| `cmt-progress` | `wms-cmt-dispatches` | `cmt-monitor` | progres CMT dipantau di Monitoring CMT, bukan di layar pengiriman |
+
+> Catatan jujur: owner menyebut "arahkan ke `prod-shipments-vendor`" untuk keempatnya. Dua alias
+> packing DIARAHKAN KE `da-cmt-receive` karena pekerjaannya memang penerimaan FG — mengirim orang yang
+> mengklik "Packing CMT" ke layar kirim material akan salah pekerjaan. Tinggal bilang kalau mau diubah.
+
+## 4) BUKTI
+
+- Gate baru **INV-F23** `scripts/verify_fase_h7_h8_surat_jalan.py` → **HIJAU 8 invarian**
+  (kelengkapan 2+4+8=14 · PDF tiap sumber 200 · filter · dispatch per pengiriman · rekap 0 tumpang
+  tindih 100% lebar · agregasi read-only · alias tak berujung kosong), terpasang di `scripts/gate.sh`.
+- Agen uji: **backend 6/6 grup, layar 7/7 grup, 0 bug**.
+- Gate lain tetap hijau: INV-F17 (PDF rapi), INV-F19, INV-F22 (roll), INV-NAV-01, INV-CONTRACT-01.
+
+## 5) SISA FASE H
+
+**H-6b** — Cutting menerbitkan dokumen Material Issue (`cutting_issue`) supaya seluruh arus keluar
+gudang muncul di satu daftar "Pengeluaran Material". Itulah satu-satunya sisa Fase H.
+
+---
+
 # SESI 2026-08-16 (#15) — **FASE H-5 & H-6 DITUTUP**: gulungan kain LAHIR saat diterima, MATI saat dipotong
 
 > **Titik berhenti sesi lalu (terukur, bukan dugaan):** `routes/warehouse.py` sudah memanggil

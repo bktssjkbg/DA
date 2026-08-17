@@ -20,6 +20,8 @@ Collection: wh_delivery_notes
 Endpoints (prefix /api/wms/delivery-notes):
   GET    /                    list + filter
   POST   /                    create draft SJ
+  GET    /sources             FASE H-7: SATU daftar surat jalan LINTAS SUMBER (read-only)
+  GET    /sources/recap-pdf   FASE H-7: cetak rekap daftar lintas sumber (landscape)
   GET    /{sj_id}             detail
   PUT    /{sj_id}             update draft
   DELETE /{sj_id}             delete draft
@@ -27,6 +29,22 @@ Endpoints (prefix /api/wms/delivery-notes):
   POST   /{sj_id}/receive     mark as received (buyer scan/acknowledge)
   POST   /{sj_id}/cancel      cancel
   GET    /{sj_id}/pdf         download PDF
+
+FASE H-7 (2026-08-16) — MENGAPA ADA LAPISAN AGREGASI
+----------------------------------------------------
+Terukur sebelum perbaikan: layar "Surat Jalan" di Portal Gudang HANYA membaca
+`wh_delivery_notes` (2 dokumen, keduanya DEMO), sementara surat jalan yang benar-benar
+dipakai operasional hidup di DUA koleksi lain — `vendor_shipments` (kirim material ke CMT)
+dan `buyer_shipments` + `buyer_shipment_items` (dispatch bertahap ke buyer) — masing-masing
+dengan PDF-nya sendiri di `operations_pdf.py`. Akibatnya orang gudang yang ditanya "surat
+jalan apa saja yang keluar minggu ini?" harus membuka TIGA layar di DUA portal berbeda, dan
+layar yang namanya paling mirip pertanyaan itu justru yang isinya paling sedikit.
+
+Keputusan pemilik (2026-08-16): **satukan jadi satu daftar cetak**. `wh_delivery_notes`
+TIDAK dipensiunkan (dia satu-satunya tempat surat jalan internal/manual bisa dibuat), tetapi
+layar Surat Jalan sekarang punya satu daftar READ-ONLY lintas sumber: tiap baris menunjuk
+dokumen aslinya dan mencetak PDF resminya (tidak ada generator PDF kedua — nomor & isi
+dokumen tetap milik sumbernya masing-masing).
 """
 # ruff: noqa: F401
 import uuid
@@ -178,6 +196,259 @@ async def create_sj(data: SJIn, request: Request):
     await db.wh_delivery_notes.insert_one(doc)
     out = await db.wh_delivery_notes.find_one({"id": sj_id}, {"_id": 0})
     return {"ok": True, "sj": serialize_doc(out)}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FASE H-7 — SATU DAFTAR SURAT JALAN LINTAS SUMBER (READ-ONLY)
+# ═══════════════════════════════════════════════════════════════════════════════
+# Lapisan ini TIDAK menulis apa pun dan TIDAK membuat nomor baru. Ia menormalkan tiga
+# koleksi yang masing-masing sudah punya dokumen resminya sendiri:
+#   · `wh_delivery_notes`   → surat jalan internal/manual gudang (punya PDF sendiri)
+#   · `vendor_shipments`    → kirim material ke CMT      (PDF: type=vendor-shipment)
+#   · `buyer_shipment_items`→ dispatch bertahap ke buyer  (PDF: type=buyer-shipment-dispatch,
+#                             satu baris = satu pengiriman fisik, bukan satu PO)
+# Kenapa dispatch buyer dipecah per `dispatch_seq`: itulah dokumen yang benar-benar dibawa
+# kurir. Menggabungnya per shipment akan menyembunyikan pengiriman ke-2 dan ke-3.
+
+SOURCE_META = {
+    "gudang": {"label": "Gudang (internal/manual)", "module": "wms-delivery-notes"},
+    "vendor": {"label": "Kirim Material ke CMT", "module": "prod-shipments-vendor"},
+    "buyer": {"label": "Dispatch ke Buyer", "module": "prod-shipments-buyer"},
+}
+
+
+def _iso(v) -> str:
+    if isinstance(v, datetime):
+        return v.isoformat()
+    return str(v or "")
+
+
+def _f(v) -> float:
+    try:
+        return float(v or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _hit(row: dict, q: str) -> bool:
+    if not q:
+        return True
+    ql = q.lower()
+    return any(ql in str(row.get(k) or "").lower()
+               for k in ("number", "recipient", "reference", "doc_type", "source_label"))
+
+
+def _in_range(row: dict, date_from: str, date_to: str) -> bool:
+    d = (row.get("date") or "")[:10]
+    if date_from and (not d or d < date_from):
+        return False
+    if date_to and (not d or d > date_to):
+        return False
+    return True
+
+
+async def _rows_gudang(db) -> list[dict]:
+    out = []
+    async for sj in db.wh_delivery_notes.find({}, {"_id": 0}):
+        lines = sj.get("lines") or []
+        out.append({
+            "source": "gudang", "source_label": SOURCE_META["gudang"]["label"],
+            "module": SOURCE_META["gudang"]["module"],
+            "key": f"gudang:{sj.get('id')}",
+            "id": sj.get("id"),
+            "number": sj.get("sj_number") or "",
+            "doc_type": sj.get("sj_type") or "SJ",
+            "date": _iso(sj.get("issued_at") or sj.get("created_at")),
+            "recipient": sj.get("recipient_name") or "",
+            "reference": sj.get("reference_no") or "",
+            "status": sj.get("status") or "draft",
+            "lines": len(lines),
+            "qty": round(sum(_f(x.get("qty")) for x in lines), 3),
+            "pdf_url": f"/api/wms/delivery-notes/{sj.get('id')}/pdf",
+            "pdf_alt_url": "",
+            "pdf_alt_label": "",
+            "vehicle_no": sj.get("vehicle_no") or "",
+        })
+    return out
+
+
+async def _rows_vendor(db) -> list[dict]:
+    agg = {}
+    async for it in db.vendor_shipment_items.find(
+            {}, {"_id": 0, "shipment_id": 1, "qty_sent": 1}):
+        a = agg.setdefault(it.get("shipment_id"), {"n": 0, "qty": 0.0})
+        a["n"] += 1
+        a["qty"] += _f(it.get("qty_sent"))
+    out = []
+    async for s in db.vendor_shipments.find({}, {"_id": 0}):
+        a = agg.get(s.get("id"), {"n": 0, "qty": 0.0})
+        out.append({
+            "source": "vendor", "source_label": SOURCE_META["vendor"]["label"],
+            "module": SOURCE_META["vendor"]["module"],
+            "key": f"vendor:{s.get('id')}",
+            "id": s.get("id"),
+            "number": s.get("delivery_note_number") or s.get("shipment_number") or "",
+            "doc_type": f"SJ-CMT · {s.get('shipment_type') or 'NORMAL'}",
+            "date": _iso(s.get("shipment_date") or s.get("created_at")),
+            "recipient": s.get("vendor_name") or "",
+            "reference": s.get("po_number") or "",
+            "status": s.get("status") or "",
+            "lines": a["n"],
+            "qty": round(a["qty"], 3),
+            "pdf_url": f"/api/export-pdf?type=vendor-shipment&id={s.get('id')}",
+            "pdf_alt_url": "",
+            "pdf_alt_label": "",
+            "vehicle_no": s.get("vehicle_no") or "",
+        })
+    return out
+
+
+async def _rows_buyer(db) -> list[dict]:
+    heads = {}
+    async for b in db.buyer_shipments.find({}, {"_id": 0}):
+        heads[b.get("id")] = b
+    agg = {}
+    async for it in db.buyer_shipment_items.find(
+            {}, {"_id": 0, "shipment_id": 1, "dispatch_seq": 1, "dispatch_date": 1,
+                 "qty_shipped": 1}):
+        seq = int(it.get("dispatch_seq") or 1)
+        k = (it.get("shipment_id"), seq)
+        a = agg.setdefault(k, {"n": 0, "qty": 0.0, "date": it.get("dispatch_date")})
+        a["n"] += 1
+        a["qty"] += _f(it.get("qty_shipped"))
+        if not a["date"]:
+            a["date"] = it.get("dispatch_date")
+    out = []
+    for (sid, seq), a in agg.items():
+        b = heads.get(sid) or {}
+        base = b.get("shipment_number") or sid or ""
+        out.append({
+            "source": "buyer", "source_label": SOURCE_META["buyer"]["label"],
+            "module": SOURCE_META["buyer"]["module"],
+            "key": f"buyer:{sid}:{seq}",
+            "id": sid,
+            "sub_seq": seq,
+            "number": f"{base}#{seq}",
+            "doc_type": f"SJ-BUYER · kirim ke-{seq}",
+            "date": _iso(a["date"] or b.get("last_dispatch") or b.get("created_at")),
+            "recipient": b.get("customer_name") or b.get("vendor_name") or "",
+            "reference": b.get("po_number") or "",
+            "status": b.get("ship_status") or "",
+            "lines": a["n"],
+            "qty": round(a["qty"], 3),
+            "pdf_url": (f"/api/export-pdf?type=buyer-shipment-dispatch"
+                        f"&shipment_id={sid}&dispatch_seq={seq}"),
+            # Dokumen kumulatif (seluruh pengiriman PO ini) — dipakai saat buyer minta rekap.
+            "pdf_alt_url": f"/api/export-pdf?type=buyer-shipment&id={sid}",
+            "pdf_alt_label": "PDF kumulatif",
+            "vehicle_no": "",
+        })
+    return out
+
+
+async def _unified_rows(db, *, source: str = "", q: str = "",
+                        date_from: str = "", date_to: str = "") -> list[dict]:
+    rows: list[dict] = []
+    if source in ("", "all", "gudang"):
+        rows += await _rows_gudang(db)
+    if source in ("", "all", "vendor"):
+        rows += await _rows_vendor(db)
+    if source in ("", "all", "buyer"):
+        rows += await _rows_buyer(db)
+    rows = [r for r in rows if _hit(r, q) and _in_range(r, date_from, date_to)]
+    rows.sort(key=lambda r: (r.get("date") or "", r.get("number") or ""), reverse=True)
+    return rows
+
+
+@router.get("/sources")
+async def list_sj_all_sources(
+    request: Request,
+    source: str = Query("", description="all|gudang|vendor|buyer"),
+    q: str = Query("", description="cari nomor / tujuan / acuan"),
+    date_from: str = Query("", description="YYYY-MM-DD"),
+    date_to: str = Query("", description="YYYY-MM-DD"),
+    limit: int = Query(500, ge=1, le=2000),
+):
+    """SATU daftar surat jalan lintas sumber — read-only, tanpa nomor baru (H-7)."""
+    await require_auth(request)
+    db = get_db()
+    rows = await _unified_rows(db, source=source, q=q, date_from=date_from, date_to=date_to)
+    counts = {"gudang": 0, "vendor": 0, "buyer": 0}
+    for r in rows:
+        counts[r["source"]] = counts.get(r["source"], 0) + 1
+    return serialize_doc({
+        "items": rows[:limit],
+        "total": len(rows),
+        "by_source": counts,
+        "total_qty": round(sum(_f(r.get("qty")) for r in rows), 3),
+        "sources": [{"key": k, **v} for k, v in SOURCE_META.items()],
+    })
+
+
+@router.get("/sources/recap-pdf")
+async def recap_pdf_all_sources(
+    request: Request,
+    source: str = Query(""),
+    q: str = Query(""),
+    date_from: str = Query(""),
+    date_to: str = Query(""),
+    token: str = Query("", description="dipakai bila diunduh lewat window.open"),
+):
+    """Cetak REKAP daftar surat jalan lintas sumber (bukan pengganti surat jalannya).
+
+    Memakai helper `_pdf_data_table` (auto-wrap + lebar proporsional penuh halaman) sesuai
+    keputusan Fase F1/F2 — tabel hardcode adalah sebab dokumen lama tumpang tindih.
+    """
+    if token:
+        # Diunduh lewat window.open (tidak bisa mengirim header) — token di query string.
+        if not verify_token_str(token):
+            raise HTTPException(401, "Token tidak sah / kedaluwarsa.")
+    else:
+        await require_auth(request)
+    db = get_db()
+    rows = await _unified_rows(db, source=source, q=q, date_from=date_from, date_to=date_to)
+
+    from routes.operations_pdf_helpers import (
+        _build_pdf, _pdf_data_table, _pdf_header_branded, _pdf_footer_branded,
+        CONTENT_W_LANDSCAPE,
+    )
+    profile = await get_company_profile(db)
+    doc_settings = await get_doc_settings(db, "delivery-note-recap")
+    periode = (f"{date_from or '…'} s/d {date_to or '…'}"
+               if (date_from or date_to) else "semua tanggal")
+    elements: list = []
+    _pdf_header_branded(
+        elements, profile, doc_settings, "REKAP SURAT JALAN — SEMUA SUMBER",
+        info_pairs=[
+            ("Periode", periode),
+            ("Sumber", SOURCE_META.get(source, {}).get("label", "Semua sumber")),
+            ("Kata kunci", q or "-"),
+            ("Jumlah dokumen", str(len(rows))),
+        ],
+        avail=CONTENT_W_LANDSCAPE)
+    headers = ["No", "No. Surat Jalan", "Sumber", "Jenis", "Tanggal", "Tujuan",
+               "Acuan (PO/Ref)", "Status", "Baris", "Total Qty"]
+    weights = [0.4, 1.7, 1.3, 1.4, 0.9, 2.0, 1.3, 1.0, 0.5, 0.8]
+    data = []
+    for i, r in enumerate(rows, 1):
+        data.append([i, r["number"], r["source_label"], r["doc_type"],
+                     (r.get("date") or "")[:10], r["recipient"], r["reference"] or "-",
+                     r["status"], r["lines"], f"{_f(r.get('qty')):,.2f}"])
+    if not data:
+        data = [["-", "tidak ada surat jalan pada filter ini", "", "", "", "", "", "", "", ""]]
+    else:
+        data.append(["", f"TOTAL {len(rows)} dokumen", "", "", "", "", "", "",
+                     sum(int(r.get("lines") or 0) for r in rows),
+                     f"{sum(_f(r.get('qty')) for r in rows):,.2f}"])
+    elements.append(_pdf_data_table(headers, data, weights=weights,
+                                    right_cols={0, 8, 9},
+                                    total_row=bool(rows), page="landscape"))
+    _pdf_footer_branded(elements, profile, doc_settings)
+    buf = io.BytesIO()
+    _build_pdf(buf, elements, page="landscape")
+    fname = f"rekap-surat-jalan-{(date_from or 'semua')}-{(date_to or 'tanggal')}.pdf"
+    return StreamingResponse(buf, media_type="application/pdf",
+                             headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 @router.get("/{sj_id}")
